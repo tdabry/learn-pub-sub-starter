@@ -1,10 +1,11 @@
 package main
 
 import (
+	"log"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"fmt"
-	"os"
-	"os/signal"
+	"github.com/tdabry/learn-pub-sub-starter/internal/pubsub"
+	"github.com/tdabry/learn-pub-sub-starter/internal/routing"
 )
 
 func main() {
@@ -14,11 +15,24 @@ func main() {
 	if err != nil {
 		fmt.Println("Failed to connect")
 		return
-	}	
+	}
 	defer rabbit.Close()
 	fmt.Println("Connection successful")
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
- 	fmt.Println("Connection closed")
+	publishCh, err := rabbit.Channel()
+	if err != nil {
+		log.Fatalf("could not create channel: %v", err)
+	}
+
+	err = pubsub.PublishJSON(
+		publishCh,
+		routing.ExchangePerilDirect,
+		routing.PauseKey,
+		routing.PlayingState{
+			IsPaused: true,
+		},
+	)
+	if err != nil {
+		log.Printf("could not publish time: %v", err)
+	}
+	fmt.Println("Pause message sent!")
 }
