@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/tdabry/learn-pub-sub-starter/internal/pubsub"
 	"github.com/tdabry/learn-pub-sub-starter/internal/routing"
+	"github.com/tdabry/learn-pub-sub-starter/internal/gamelogic"
 )
 
 func main() {
@@ -18,6 +19,7 @@ func main() {
 	}
 	defer rabbit.Close()
 	fmt.Println("Connection successful")
+	gamelogic.PrintServerHelp()
 	publishCh, err := rabbit.Channel()
 	if err != nil {
 		log.Fatalf("could not create channel: %v", err)
