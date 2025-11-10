@@ -24,18 +24,24 @@ func main() {
 		log.Print("error getting username")
 		return
 	}
-	var qType pubsub.SimpleQueueType = pubsub.Transient
-	_, queue, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilDirect, routing.PauseKey+"."+username,
-				routing.PauseKey, qType)
+	
+	_, queue, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilDirect, 
+						routing.PauseKey+"."+username, routing.PauseKey, pubsub.Transient)
 	if err != nil {
-		log.Print("something went wrong with queue binding")
+		log.Print("something went wrong with queue binding1")
 		return
 	}
-	
+
 	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
 	
 	gamelogic.PrintClientHelp()
 	gameState := gamelogic.NewGameState(username)
+	err = pubsub.SubscribeJSON(rabbit, routing.ExchangePerilDirect, routing.PauseKey+"."+username,
+							routing.PauseKey, pubsub.Transient, handlerPause(gameState))	
+	if err != nil {
+		log.Print("something went wrong with queue binding2")
+		return
+	}
 	for {
 		words := gamelogic.GetInput()
 		if len(words) == 0 {
@@ -70,4 +76,11 @@ func hasErr(err error) bool {
 		return true
 	}
 	return false
+}
+
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+	return func(ps routing.PlayingState){
+		defer fmt.Print("> ")
+		gs.HandlePause(ps)
+	}
 }

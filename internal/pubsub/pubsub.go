@@ -1,10 +1,10 @@
-package pubsub 
+package pubsub
 
 import (
-	"log"
 	"context"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"encoding/json"
+	"log"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 type SimpleQueueType int
 const (
@@ -51,9 +51,41 @@ func DeclareAndBind(
 	}
 	err = ch.QueueBind(queueName, key, exchange, false, nil)
 	if err != nil {
-		log.Printf("qName: %s, key: %s, ex: %s", queueName, key, exchange)
-		log.Print("error binding queue")
+		log.Printf("error binding queue\nqName: %s, key: %s, ex: %s", queueName, key, exchange)
 		return nil, amqp.Queue{}, err
 	}
 	return ch, newQ, nil
+}
+
+func SubscribeJSON[T any](
+    conn *amqp.Connection,
+    exchange,
+    queueName,
+    key string,
+    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+    handler func(T),
+) error {
+	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	if err != nil {
+		return err
+	}
+	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+	go func(){
+		defer ch.Close()
+		for el := range deliveryCh {
+			var decoded T
+			err = json.Unmarshal(el.Body, &decoded)
+			if err != nil {
+				log.Print("error unmarshalling")
+				el.Nack(false, false)
+			} else {
+				handler(decoded)
+				el.Ack(false)
+			}
+		}
+	}()
+	return nil
 }

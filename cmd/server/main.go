@@ -18,10 +18,14 @@ func main() {
 		return
 	}
 	defer rabbit.Close()
+	pubCh, err := rabbit.Channel()
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("Connection successful")
 	gamelogic.PrintServerHelp()
 	
-	ch, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
+	_, _, err = pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
 		routing.GameLogSlug, "game_logs.*", pubsub.Durable)
 	if err != nil {
 		log.Fatal(err)
@@ -33,10 +37,10 @@ func main() {
 		}
 		word := words[0]
 		if word == "pause" {
-			pubsub.PublishJSON(ch, routing.ExchangePerilDirect, routing.PauseKey,
+			pubsub.PublishJSON(pubCh, routing.ExchangePerilDirect, routing.PauseKey,
 				routing.PlayingState{IsPaused: true})
 		} else if word == "resume" {
-			pubsub.PublishJSON(ch, routing.ExchangePerilDirect, routing.PauseKey,
+			pubsub.PublishJSON(pubCh, routing.ExchangePerilDirect, routing.PauseKey,
 				routing.PlayingState{IsPaused: false})
 		} else if word == "help" {
 			gamelogic.PrintServerHelp()
