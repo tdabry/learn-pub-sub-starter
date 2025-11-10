@@ -18,14 +18,11 @@ func main() {
 		return
 	}
 	defer rabbit.Close()
-	pubCh, err := rabbit.Channel()
-	if err != nil {
-		log.Fatal(err)
-	}
+	
 	fmt.Println("Connection successful")
 	gamelogic.PrintServerHelp()
 	
-	_, _, err = pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
+	pubCh, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
 		routing.GameLogSlug, "game_logs.*", pubsub.Durable)
 	if err != nil {
 		log.Fatal(err)
