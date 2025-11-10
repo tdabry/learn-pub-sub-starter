@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/tdabry/learn-pub-sub-starter/internal/routing"
 )
 type SimpleQueueType int
 const (
@@ -51,7 +52,9 @@ func DeclareAndBind(
 		autodel = true
 		excl = true
 	}
-	newQ, err := ch.QueueDeclare(queueName, dur, autodel, excl, false, nil)
+
+	newQ, err := ch.QueueDeclare(queueName, dur, autodel, excl, false, 
+		amqp.Table{"x-dead-letter-exchange": routing.ExchangePerilDead})
 	if err != nil {
 		log.Print("error declaring queue")
 		return nil, amqp.Queue{}, err

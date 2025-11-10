@@ -22,8 +22,9 @@ func main() {
 	fmt.Println("Connection successful")
 	gamelogic.PrintServerHelp()
 	
-	pubCh, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
-		routing.GameLogSlug, "game_logs.*", pubsub.Durable)
+	// pubCh, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
+	// 	routing.GameLogSlug, "game_logs.*", pubsub.Durable)
+	pubCh, err := rabbit.Channel()
 	if err != nil {
 		log.Fatal(err)
 	}
