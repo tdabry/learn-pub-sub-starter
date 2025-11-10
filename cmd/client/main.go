@@ -76,7 +76,7 @@ func main() {
 }
 
 func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
-	username, exchange, key, msg string, handler func(*gamelogic.GameState) func(T)) {
+	username, exchange, key, msg string, handler func(*gamelogic.GameState) func(T) pubsub.Acktype) {
 
 	err := pubsub.SubscribeJSON(rabbit, exchange, key+"."+username,
 		key, pubsub.Transient, handler(gameState))
@@ -108,16 +108,24 @@ func hasErr(err error) bool {
 	return false
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
-	return func(mv gamelogic.ArmyMove) {
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.Acktype {
+	return func(mv gamelogic.ArmyMove) pubsub.Acktype {
 		defer fmt.Print("> ")
-		gs.HandleMove(mv)
+		moveOut := gs.HandleMove(mv)
+		switch(moveOut) {
+		case gamelogic.MoveOutComeSafe:
+			fallthrough
+		case gamelogic.MoveOutcomeMakeWar:
+			return pubsub.Ack
+		}
+		return pubsub.NackDiscard
 	}
 }
 
-func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
-	return func(ps routing.PlayingState) {
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.Acktype {
+	return func(ps routing.PlayingState) pubsub.Acktype {
 		defer fmt.Print("> ")
 		gs.HandlePause(ps)
+		return pubsub.Ack
 	}
 }

@@ -12,6 +12,13 @@ const (
 	Transient SimpleQueueType = 1
 )
 
+type Acktype int
+const (
+	Ack Acktype = iota
+	NackRequeue  
+	NackDiscard  
+)
+
 func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	val_json, err := json.Marshal(val)
 	if err != nil {
@@ -63,7 +70,7 @@ func SubscribeJSON[T any](
     queueName,
     key string,
     queueType SimpleQueueType, // an enum to represent "durable" or "transient"
-    handler func(T),
+    handler func(T) Acktype,
 ) error {
 	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
 	if err != nil {
@@ -82,8 +89,18 @@ func SubscribeJSON[T any](
 				log.Print("error unmarshalling")
 				el.Nack(false, false)
 			} else {
-				handler(decoded)
-				el.Ack(false)
+				ackType := handler(decoded)
+				switch(ackType){
+				case Ack:
+					log.Print("ack")
+					el.Ack(false)
+				case NackRequeue:
+					log.Print("nack req")
+					el.Nack(false, true)
+				case NackDiscard:
+					log.Print("nack disc")
+					el.Nack(false, false)
+				}
 			}
 		}
 	}()
