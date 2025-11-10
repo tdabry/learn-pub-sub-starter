@@ -20,21 +20,30 @@ func main() {
 	defer rabbit.Close()
 	fmt.Println("Connection successful")
 	gamelogic.PrintServerHelp()
-	publishCh, err := rabbit.Channel()
+	ch, err := rabbit.Channel()
 	if err != nil {
-		log.Fatalf("could not create channel: %v", err)
+		log.Println("error creating channel")
+		return
 	}
-
-	err = pubsub.PublishJSON(
-		publishCh,
-		routing.ExchangePerilDirect,
-		routing.PauseKey,
-		routing.PlayingState{
-			IsPaused: true,
-		},
-	)
-	if err != nil {
-		log.Printf("could not publish time: %v", err)
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+		word := words[0]
+		if word == "pause" {
+			pubsub.PublishJSON(ch, routing.ExchangePerilDirect, routing.PauseKey,
+				routing.PlayingState{IsPaused: true})
+		} else if word == "resume" {
+			pubsub.PublishJSON(ch, routing.ExchangePerilDirect, routing.PauseKey,
+				routing.PlayingState{IsPaused: false})
+		} else if word == "help" {
+			gamelogic.PrintServerHelp()
+		} else if word == "quit" {
+			log.Println("Exiting...")
+			break
+		} else {
+			log.Printf("Unknown command: <%s>", word)
+		}
 	}
-	fmt.Println("Pause message sent!")
 }
