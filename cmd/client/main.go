@@ -2,8 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
-	"os/signal"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"fmt"
 	"github.com/tdabry/learn-pub-sub-starter/internal/pubsub"
@@ -35,10 +33,41 @@ func main() {
 	}
 	
 	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
+	
+	gamelogic.PrintClientHelp()
+	gameState := gamelogic.NewGameState(username)
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+		word := words[0]
+		if word == "spawn" {
+			err = gameState.CommandSpawn(words)
+			if skip := hasErr(err); skip {continue}
+		} else if word == "move" {
+			_, err := gameState.CommandMove(words)
+			if skip := hasErr(err); skip {continue}
+			log.Printf("move %s %s", words[1], words[2])
+		} else if word == "status" {
+			gameState.CommandStatus()
+		} else if word == "help" {
+			gamelogic.PrintClientHelp()
+		} else if word == "spam" {
+			log.Println("spam command not available yet")		
+		} else if word == "quit" {
+			log.Println("Exiting...")
+			break
+		} else {
+			log.Printf("Unknown command: <%s>", word)
+		}
+	}
+}
 
-	// wait for ctrl+c
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
-	fmt.Println("RabbitMQ connection closed.")
+func hasErr(err error) bool {
+	if err != nil {
+		log.Printf("%s", err)
+		return true
+	}
+	return false
 }
