@@ -48,7 +48,7 @@ func main() {
 		} else if word == "move" {
 			_, err := gameState.CommandMove(words)
 			if skip := hasErr(err); skip {continue}
-			log.Printf("move %s %s", words[1], words[2])
+			log.Printf("move %s %v", words[1], words[2:])
 		} else if word == "status" {
 			gameState.CommandStatus()
 		} else if word == "help" {

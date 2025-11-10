@@ -20,10 +20,11 @@ func main() {
 	defer rabbit.Close()
 	fmt.Println("Connection successful")
 	gamelogic.PrintServerHelp()
-	ch, err := rabbit.Channel()
+	
+	ch, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
+		routing.GameLogSlug, "game_logs.*", pubsub.Durable)
 	if err != nil {
-		log.Println("error creating channel")
-		return
+		log.Fatal(err)
 	}
 	for {
 		words := gamelogic.GetInput()
