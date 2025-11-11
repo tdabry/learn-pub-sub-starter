@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -72,7 +73,12 @@ func main() {
 		} else if word == "help" {
 			gamelogic.PrintClientHelp()
 		} else if word == "spam" {
-			log.Println("spam command not available yet")
+			n, err := getSpamCount(words[1:])
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			spamLog(rabbit, n, username)
 		} else if word == "quit" {
 			log.Println("Exiting...")
 			break
@@ -196,6 +202,27 @@ func publishGameLog(conn *amqp.Connection, username, msg string) error {
 	logStruct := routing.GameLog{CurrentTime: time.Now(),
 		Message: msg, Username: username}
 	ch, err := conn.Channel()
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
 	if err != nil { return err}
 	return pubsub.PublishGob(ch, exchange, route, logStruct)
+}
+
+func getSpamCount(words []string) (int64, error) {
+	if len(words) < 1 {
+		return 0, fmt.Errorf("usage: spam <number>")
+	}
+	return strconv.ParseInt(words[0], 10, 32)
+} 
+
+func spamLog(conn *amqp.Connection, times int64, username string) {
+	for range times{
+		logMsg := gamelogic.GetMaliciousLog()
+		err := publishGameLog(conn, username, logMsg)
+		if err != nil {
+			log.Print("error publishing spam msg")
+		}
+	}
 }
