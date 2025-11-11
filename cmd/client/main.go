@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tdabry/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/tdabry/learn-pub-sub-starter/internal/pubsub"
 	"github.com/tdabry/learn-pub-sub-starter/internal/routing"
-	"log"
 )
 
 func main() {
@@ -26,17 +27,22 @@ func main() {
 	}
 
 	bindQueue(rabbit, username, routing.ExchangePerilTopic,
-		routing.PauseKey, "something went wrong with queue binding1")
+		routing.PauseKey, "something went wrong with queue binding1", pubsub.Transient)
 	ch := bindQueue(rabbit, username, routing.ExchangePerilTopic,
-		routing.ArmyMovesPrefix, "something went wrong with queue binding2")
-
+		routing.ArmyMovesPrefix, "something went wrong with queue binding2", pubsub.Transient)
+	bindQueue(rabbit, "", routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix, "something went wrong with queue binding3", pubsub.Durable)
+	
 	gameState := gamelogic.NewGameState(username)
 	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
-		routing.PauseKey, "error subscribing to queue1", handlerPause)
+		routing.PauseKey, "error subscribing to queue1", pubsub.Transient, handlerPause)
 
 	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
-		routing.ArmyMovesPrefix, "error subscribing to queue2", handlerMove)
-
+		routing.ArmyMovesPrefix, "error subscribing to queue2", pubsub.Transient, handlerMove)
+	
+	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix, "error subscribing to queue3", pubsub.Durable, handlerWar)	
+	
 	gamelogic.PrintClientHelp()
 	for {
 		words := gamelogic.GetInput()
@@ -76,23 +82,36 @@ func main() {
 }
 
 func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
-	username, exchange, key, msg string, handler func(*gamelogic.GameState) func(T) pubsub.Acktype) {
-
-	err := pubsub.SubscribeJSON(rabbit, exchange, key+"."+username,
-		key, pubsub.Transient, handler(gameState))
+	username, exchange, key, msg string, qType pubsub.SimpleQueueType,
+	handler func(*gamelogic.GameState, *amqp.Connection) func(T) pubsub.Acktype) {
+	
+	qName := key+"."+username
+	route := key
+	if key == "war"{
+		route = key + "." + username
+		qName = key
+	}
+	err := pubsub.SubscribeJSON(rabbit, exchange, qName,
+		route, qType, handler(gameState, rabbit))
 	if err != nil {
 		log.Fatal(msg)
 	}
 }
 
-func bindQueue(rabbit *amqp.Connection, username, exchange, key, msg string) *amqp.Channel {
+func bindQueue(rabbit *amqp.Connection, username, exchange, key, msg string, 
+				qType pubsub.SimpleQueueType) *amqp.Channel {
+	
 	route := key
-	if key == "army_moves" {
+	qName := key+"."+username
+	switch key {
+	case "army_moves":
+		route = route + ".*"
+	case "war":
+		qName = key
 		route = route + ".*"
 	}
-
 	ch, queue, err := pubsub.DeclareAndBind(rabbit, exchange,
-		key+"."+username, route, pubsub.Transient)
+		qName, route, qType)
 	if err != nil {
 		log.Fatal(msg)
 	}
@@ -108,21 +127,55 @@ func hasErr(err error) bool {
 	return false
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.Acktype {
+func handlerMove(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogic.ArmyMove) pubsub.Acktype {
 	return func(mv gamelogic.ArmyMove) pubsub.Acktype {
 		defer fmt.Print("> ")
 		moveOut := gs.HandleMove(mv)
 		switch(moveOut) {
 		case gamelogic.MoveOutComeSafe:
-			fallthrough
-		case gamelogic.MoveOutcomeMakeWar:
 			return pubsub.Ack
+		case gamelogic.MoveOutcomeMakeWar:
+			routingKey := fmt.Sprintf("%s.%s", routing.WarRecognitionsPrefix, mv.Player.Username)
+			ch, err := rabbit.Channel()
+			if err != nil {
+				return pubsub.NackRequeue
+			}
+			defer ch.Close()
+			if err := pubsub.PublishJSON(ch, routing.ExchangePerilTopic, routingKey, gamelogic.RecognitionOfWar{Attacker: mv.Player, Defender: gs.Player}); err != nil {
+				log.Printf("handlerMove: publish error: %v", err)
+				return pubsub.NackRequeue
+			}
+
+			log.Printf("handlerMove: war recognition published to %s", routingKey)
+			return pubsub.NackRequeue
 		}
+		
 		return pubsub.NackDiscard
 	}
 }
 
-func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.Acktype {
+func handlerWar(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
+	return func(war gamelogic.RecognitionOfWar) pubsub.Acktype {
+		defer fmt.Print("> ")
+		outcome, _, _ := gs.HandleWar(war)
+		switch(outcome) {
+		case gamelogic.WarOutcomeNotInvolved:
+			return pubsub.NackRequeue
+		case gamelogic.WarOutcomeNoUnits:
+			return pubsub.NackDiscard
+		case gamelogic.WarOutcomeOpponentWon:
+			fallthrough
+		case gamelogic.WarOutcomeYouWon:
+			fallthrough
+		case gamelogic.WarOutcomeDraw:
+			return pubsub.Ack
+		}
+		log.Print("Unknown war outcome")
+		return pubsub.NackDiscard
+	}
+}
+
+func handlerPause(gs *gamelogic.GameState, rabbit *amqp.Connection) func(routing.PlayingState) pubsub.Acktype {
 	return func(ps routing.PlayingState) pubsub.Acktype {
 		defer fmt.Print("> ")
 		gs.HandlePause(ps)

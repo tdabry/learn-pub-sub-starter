@@ -9,8 +9,8 @@ import (
 )
 type SimpleQueueType int
 const (
-	Durable SimpleQueueType = 0
-	Transient SimpleQueueType = 1
+	Durable SimpleQueueType = iota
+	Transient 
 )
 
 type Acktype int
@@ -77,6 +77,7 @@ func SubscribeJSON[T any](
 ) error {
 	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
 	if err != nil {
+		log.Printf("%s %s", queueName, key)
 		return err
 	}
 	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
