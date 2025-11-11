@@ -78,7 +78,7 @@ func main() {
 				log.Print(err)
 				continue
 			}
-			spamLog(rabbit, n, username)
+			spamLog(ch, n, username)
 		} else if word == "quit" {
 			log.Println("Exiting...")
 			break
@@ -161,11 +161,14 @@ func handlerMove(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogi
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
+func handlerWar(gs *gamelogic.GameState, conn *amqp.Connection) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
 	return func(war gamelogic.RecognitionOfWar) pubsub.Acktype {
 		defer fmt.Print("> ")
 		outcome, winner, loser := gs.HandleWar(war)
 		logMsg := ""
+		ch, err := conn.Channel()
+		if err != nil {return pubsub.NackRequeue}
+		defer ch.Close()
 		switch outcome {
 		case gamelogic.WarOutcomeNotInvolved:
 			return pubsub.NackRequeue
@@ -175,12 +178,12 @@ func handlerWar(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogic
 			fallthrough
 		case gamelogic.WarOutcomeYouWon:
 			logMsg = fmt.Sprintf("%s won a war against %s", winner, loser)
-			err := publishGameLog(rabbit, gs.GetUsername(), logMsg)
+			err := publishGameLog(ch, gs.GetUsername(), logMsg)
 			if err != nil {return pubsub.NackRequeue}
 			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
 			logMsg = fmt.Sprintf("A war between %s and %s resulted in a draw", winner, loser)
-			err := publishGameLog(rabbit, gs.GetUsername(), logMsg)
+			err := publishGameLog(ch, gs.GetUsername(), logMsg)
 			if err != nil {return pubsub.NackRequeue}
 			return pubsub.Ack
 		}
@@ -196,17 +199,11 @@ func handlerPause(gs *gamelogic.GameState, rabbit *amqp.Connection) func(routing
 		return pubsub.Ack
 	}
 }
-func publishGameLog(conn *amqp.Connection, username, msg string) error {
+func publishGameLog(ch *amqp.Channel, username, msg string) error {
 	exchange := routing.ExchangePerilTopic
 	route := routing.GameLogSlug + "." + username
 	logStruct := routing.GameLog{CurrentTime: time.Now(),
 		Message: msg, Username: username}
-	ch, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-	defer ch.Close()
-	if err != nil { return err}
 	return pubsub.PublishGob(ch, exchange, route, logStruct)
 }
 
@@ -217,10 +214,10 @@ func getSpamCount(words []string) (int64, error) {
 	return strconv.ParseInt(words[0], 10, 32)
 } 
 
-func spamLog(conn *amqp.Connection, times int64, username string) {
+func spamLog(ch *amqp.Channel, times int64, username string) {
 	for range times{
 		logMsg := gamelogic.GetMaliciousLog()
-		err := publishGameLog(conn, username, logMsg)
+		err := publishGameLog(ch, username, logMsg)
 		if err != nil {
 			log.Print("error publishing spam msg")
 		}

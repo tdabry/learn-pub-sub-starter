@@ -83,6 +83,7 @@ func SubscribeJSON[T any](
 		log.Printf("%s %s", queueName, key)
 		return err
 	}
+	ch.Qos(10, 0, true)
 	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
 	if err != nil {
 		return err
@@ -137,6 +138,7 @@ func SubscribeGob[T any](
 		log.Printf("%s %s", queueName, key)
 		return err
 	}
+	ch.Qos(10, 0, true)
 	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
 	if err != nil {
 		return err

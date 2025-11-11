@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for {
+ 	for {
 		words := gamelogic.GetInput()
 		if len(words) == 0 {
 			continue
