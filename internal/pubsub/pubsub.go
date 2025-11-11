@@ -10,17 +10,20 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tdabry/learn-pub-sub-starter/internal/routing"
 )
+
 type SimpleQueueType int
+
 const (
 	Durable SimpleQueueType = iota
-	Transient 
+	Transient
 )
 
 type Acktype int
+
 const (
 	Ack Acktype = iota
-	NackRequeue  
-	NackDiscard  
+	NackRequeue
+	NackDiscard
 )
 
 func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
@@ -28,7 +31,7 @@ func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	if err != nil {
 		return err
 	}
-	return ch.PublishWithContext(context.Background(), exchange, key, false, false, 
+	return ch.PublishWithContext(context.Background(), exchange, key, false, false,
 		amqp.Publishing{ContentType: "application/json", Body: val_json})
 
 }
@@ -48,7 +51,7 @@ func DeclareAndBind(
 	dur := false
 	autodel := false
 	excl := false
-	switch (queueType) {
+	switch queueType {
 	case Durable:
 		dur = true
 	case Transient:
@@ -56,7 +59,7 @@ func DeclareAndBind(
 		excl = true
 	}
 
-	newQ, err := ch.QueueDeclare(queueName, dur, autodel, excl, false, 
+	newQ, err := ch.QueueDeclare(queueName, dur, autodel, excl, false,
 		amqp.Table{"x-dead-letter-exchange": routing.ExchangePerilDead})
 	if err != nil {
 		log.Print("error declaring queue")
@@ -70,48 +73,6 @@ func DeclareAndBind(
 	return ch, newQ, nil
 }
 
-func SubscribeJSON[T any](
-    conn *amqp.Connection,
-    exchange,
-    queueName,
-    key string,
-    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
-    handler func(T) Acktype,
-) error {
-	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
-	if err != nil {
-		log.Printf("%s %s", queueName, key)
-		return err
-	}
-	ch.Qos(10, 0, true)
-	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
-	if err != nil {
-		return err
-	}
-	go func(){
-		defer ch.Close()
-		for el := range deliveryCh {
-			var decoded T
-			err = json.Unmarshal(el.Body, &decoded)
-			if err != nil {
-				log.Print("error unmarshalling")
-				el.Nack(false, false)
-			} else {
-				ackType := handler(decoded)
-				switch(ackType){
-				case Ack:
-					el.Ack(false)
-				case NackRequeue:
-					el.Nack(false, true)
-				case NackDiscard:
-					el.Nack(false, false)
-				}
-			}
-		}
-	}()
-	return nil
-}
-
 func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	var network bytes.Buffer
 	encoder := gob.NewEncoder(&network)
@@ -119,18 +80,19 @@ func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	if err != nil {
 		return err
 	}
-	return ch.PublishWithContext(context.Background(), exchange, key, false, false, 
+	return ch.PublishWithContext(context.Background(), exchange, key, false, false,
 		amqp.Publishing{ContentType: "application/gob", Body: network.Bytes()})
 
 }
 
-func SubscribeGob[T any](
-    conn *amqp.Connection,
-    exchange,
-    queueName,
-    key string,
-    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
-    handler func(T) Acktype,
+func Subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+	handler func(T) Acktype,
+	unmarshaller func([]byte) (T, error),
 ) error {
 
 	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
@@ -143,25 +105,16 @@ func SubscribeGob[T any](
 	if err != nil {
 		return err
 	}
-	go func(){
+	go func() {
 		defer ch.Close()
 		for el := range deliveryCh {
-			var decoded T
-			var network bytes.Buffer
-			_, err := network.Write(el.Body)
-			if err != nil {
-				log.Print("error writing to buffer")
-				el.Nack(false, false)
-				return
-			}
-			decoder := gob.NewDecoder(&network)
-			err = decoder.Decode(&decoded)
+			decoded, err := unmarshaller(el.Body)
 			if err != nil {
 				log.Print("error unmarshalling")
 				el.Nack(false, false)
 			} else {
 				ackType := handler(decoded)
-				switch(ackType){
+				switch ackType {
 				case Ack:
 					el.Ack(false)
 				case NackRequeue:
@@ -173,4 +126,25 @@ func SubscribeGob[T any](
 		}
 	}()
 	return nil
+}
+
+func Gob_unmarshal[T any](body []byte) (T, error) {
+	var decoded T
+	var network bytes.Buffer
+	_, err := network.Write(body)
+	if err != nil {
+		log.Print("error writing to buffer")
+		return decoded, err
+	}
+	decoder := gob.NewDecoder(&network)
+	return decoded, decoder.Decode(&decoded)
+}
+
+func Json_unmarshal[T any](body []byte) (T, error) {
+	var decoded T
+	err := json.Unmarshal(body, &decoded)
+	if err != nil {
+		return decoded, err
+	}
+	return decoded, nil
 }

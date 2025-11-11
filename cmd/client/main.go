@@ -98,8 +98,8 @@ func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
 		route = key + "."
 		qName = key
 	}
-	err := pubsub.SubscribeJSON(rabbit, exchange, qName,
-		route, qType, handler(gameState, rabbit))
+	err := pubsub.Subscribe(rabbit, exchange, qName,
+		route, qType, handler(gameState, rabbit), pubsub.Json_unmarshal)
 	if err != nil {
 		log.Fatal(msg)
 	}

@@ -27,8 +27,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = pubsub.SubscribeGob(rabbit, routing.ExchangePerilTopic, routing.GameLogSlug,
-			routing.GameLogSlug+".*", pubsub.Durable, handlerLog)
+	err = pubsub.Subscribe(rabbit, routing.ExchangePerilTopic, routing.GameLogSlug,
+			routing.GameLogSlug+".*", pubsub.Durable, handlerLog, pubsub.Gob_unmarshal)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -39,11 +39,17 @@ func main() {
 		}
 		word := words[0]
 		if word == "pause" {
-			pubsub.PublishJSON(pubCh, routing.ExchangePerilDirect, routing.PauseKey,
+			err := pubsub.PublishJSON(pubCh, routing.ExchangePerilDirect, routing.PauseKey,
 				routing.PlayingState{IsPaused: true})
+			if err != nil {
+				log.Print(err)
+			}
 		} else if word == "resume" {
-			pubsub.PublishJSON(pubCh, routing.ExchangePerilDirect, routing.PauseKey,
+			err := pubsub.PublishJSON(pubCh, routing.ExchangePerilDirect, routing.PauseKey,
 				routing.PlayingState{IsPaused: false})
+			if err != nil {
+				log.Print(err)
+			}
 		} else if word == "help" {
 			gamelogic.PrintServerHelp()
 		} else if word == "quit" {
