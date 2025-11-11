@@ -21,10 +21,14 @@ func main() {
 	
 	fmt.Println("Connection successful")
 	gamelogic.PrintServerHelp()
-	
-	// pubCh, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
-	// 	routing.GameLogSlug, "game_logs.*", pubsub.Durable)
-	pubCh, err := rabbit.Channel()
+
+	pubCh, _, err := pubsub.DeclareAndBind(rabbit, routing.ExchangePerilTopic, 
+		routing.GameLogSlug, "game_logs.*", pubsub.Durable)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = pubsub.SubscribeGob(rabbit, routing.ExchangePerilTopic, routing.GameLogSlug,
+			routing.GameLogSlug+".*", pubsub.Durable, handlerLog)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,4 +53,13 @@ func main() {
 			log.Printf("Unknown command: <%s>", word)
 		}
 	}
+}
+
+func handlerLog(lg routing.GameLog) pubsub.Acktype {
+	defer fmt.Print("> ")
+	err := gamelogic.WriteLog(lg)
+	if err != nil {
+		return pubsub.NackRequeue
+	}
+	return pubsub.Ack
 }

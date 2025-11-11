@@ -1,9 +1,12 @@
 package pubsub
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"log"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tdabry/learn-pub-sub-starter/internal/routing"
 )
@@ -96,13 +99,72 @@ func SubscribeJSON[T any](
 				ackType := handler(decoded)
 				switch(ackType){
 				case Ack:
-					log.Print("ack")
 					el.Ack(false)
 				case NackRequeue:
-					log.Print("nack req")
 					el.Nack(false, true)
 				case NackDiscard:
-					log.Print("nack disc")
+					el.Nack(false, false)
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
+	var network bytes.Buffer
+	encoder := gob.NewEncoder(&network)
+	err := encoder.Encode(val)
+	if err != nil {
+		return err
+	}
+	return ch.PublishWithContext(context.Background(), exchange, key, false, false, 
+		amqp.Publishing{ContentType: "application/gob", Body: network.Bytes()})
+
+}
+
+func SubscribeGob[T any](
+    conn *amqp.Connection,
+    exchange,
+    queueName,
+    key string,
+    queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+    handler func(T) Acktype,
+) error {
+
+	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	if err != nil {
+		log.Printf("%s %s", queueName, key)
+		return err
+	}
+	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+	go func(){
+		defer ch.Close()
+		for el := range deliveryCh {
+			var decoded T
+			var network bytes.Buffer
+			_, err := network.Write(el.Body)
+			if err != nil {
+				log.Print("error writing to buffer")
+				el.Nack(false, false)
+				return
+			}
+			decoder := gob.NewDecoder(&network)
+			err = decoder.Decode(&decoded)
+			if err != nil {
+				log.Print("error unmarshalling")
+				el.Nack(false, false)
+			} else {
+				ackType := handler(decoded)
+				switch(ackType){
+				case Ack:
+					el.Ack(false)
+				case NackRequeue:
+					el.Nack(false, true)
+				case NackDiscard:
 					el.Nack(false, false)
 				}
 			}

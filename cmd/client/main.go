@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tdabry/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/tdabry/learn-pub-sub-starter/internal/pubsub"
@@ -31,17 +33,17 @@ func main() {
 		routing.ArmyMovesPrefix, "something went wrong with queue binding2", pubsub.Transient)
 	bindQueue(rabbit, "", routing.ExchangePerilTopic,
 		routing.WarRecognitionsPrefix, "something went wrong with queue binding3", pubsub.Durable)
-	
+
 	gameState := gamelogic.NewGameState(username)
 	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
 		routing.PauseKey, "error subscribing to queue1", pubsub.Transient, handlerPause)
 
 	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
 		routing.ArmyMovesPrefix, "error subscribing to queue2", pubsub.Transient, handlerMove)
-	
+
 	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
-		routing.WarRecognitionsPrefix, "error subscribing to queue3", pubsub.Durable, handlerWar)	
-	
+		routing.WarRecognitionsPrefix, "error subscribing to queue3", pubsub.Durable, handlerWar)
+
 	gamelogic.PrintClientHelp()
 	for {
 		words := gamelogic.GetInput()
@@ -83,11 +85,11 @@ func main() {
 func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
 	username, exchange, key, msg string, qType pubsub.SimpleQueueType,
 	handler func(*gamelogic.GameState, *amqp.Connection) func(T) pubsub.Acktype) {
-	
-	qName := key+"."+username
+
+	qName := key + "." + username
 	route := key
-	if key == "war"{
-		route = key + "." 
+	if key == "war" {
+		route = key + "."
 		qName = key
 	}
 	err := pubsub.SubscribeJSON(rabbit, exchange, qName,
@@ -97,11 +99,11 @@ func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
 	}
 }
 
-func bindQueue(rabbit *amqp.Connection, username, exchange, key, msg string, 
-				qType pubsub.SimpleQueueType) *amqp.Channel {
-	
+func bindQueue(rabbit *amqp.Connection, username, exchange, key, msg string,
+	qType pubsub.SimpleQueueType) *amqp.Channel {
+
 	route := key
-	qName := key+"."+username
+	qName := key + "." + username
 	switch key {
 	case "army_moves":
 		route = route + ".*"
@@ -130,7 +132,7 @@ func handlerMove(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogi
 	return func(mv gamelogic.ArmyMove) pubsub.Acktype {
 		defer fmt.Print("> ")
 		moveOut := gs.HandleMove(mv)
-		switch(moveOut) {
+		switch moveOut {
 		case gamelogic.MoveOutComeSafe:
 			return pubsub.Ack
 		case gamelogic.MoveOutcomeMakeWar:
@@ -148,7 +150,7 @@ func handlerMove(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogi
 			log.Printf("handlerMove: war recognition published to %s", routingKey)
 			return pubsub.Ack
 		}
-		
+
 		return pubsub.NackDiscard
 	}
 }
@@ -156,8 +158,9 @@ func handlerMove(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogi
 func handlerWar(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
 	return func(war gamelogic.RecognitionOfWar) pubsub.Acktype {
 		defer fmt.Print("> ")
-		outcome, _, _ := gs.HandleWar(war)
-		switch(outcome) {
+		outcome, winner, loser := gs.HandleWar(war)
+		logMsg := ""
+		switch outcome {
 		case gamelogic.WarOutcomeNotInvolved:
 			return pubsub.NackRequeue
 		case gamelogic.WarOutcomeNoUnits:
@@ -165,8 +168,14 @@ func handlerWar(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogic
 		case gamelogic.WarOutcomeOpponentWon:
 			fallthrough
 		case gamelogic.WarOutcomeYouWon:
-			fallthrough
+			logMsg = fmt.Sprintf("%s won a war against %s", winner, loser)
+			err := publishGameLog(rabbit, gs.GetUsername(), logMsg)
+			if err != nil {return pubsub.NackRequeue}
+			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
+			logMsg = fmt.Sprintf("A war between %s and %s resulted in a draw", winner, loser)
+			err := publishGameLog(rabbit, gs.GetUsername(), logMsg)
+			if err != nil {return pubsub.NackRequeue}
 			return pubsub.Ack
 		}
 		log.Print("Unknown war outcome")
@@ -180,4 +189,13 @@ func handlerPause(gs *gamelogic.GameState, rabbit *amqp.Connection) func(routing
 		gs.HandlePause(ps)
 		return pubsub.Ack
 	}
+}
+func publishGameLog(conn *amqp.Connection, username, msg string) error {
+	exchange := routing.ExchangePerilTopic
+	route := routing.GameLogSlug + "." + username
+	logStruct := routing.GameLog{CurrentTime: time.Now(),
+		Message: msg, Username: username}
+	ch, err := conn.Channel()
+	if err != nil { return err}
+	return pubsub.PublishGob(ch, exchange, route, logStruct)
 }
