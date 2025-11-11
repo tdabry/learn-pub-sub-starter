@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tdabry/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/tdabry/learn-pub-sub-starter/internal/pubsub"
@@ -88,7 +87,7 @@ func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
 	qName := key+"."+username
 	route := key
 	if key == "war"{
-		route = key + "." + username
+		route = key + "." 
 		qName = key
 	}
 	err := pubsub.SubscribeJSON(rabbit, exchange, qName,
@@ -147,7 +146,7 @@ func handlerMove(gs *gamelogic.GameState, rabbit *amqp.Connection) func(gamelogi
 			}
 
 			log.Printf("handlerMove: war recognition published to %s", routingKey)
-			return pubsub.NackRequeue
+			return pubsub.Ack
 		}
 		
 		return pubsub.NackDiscard
