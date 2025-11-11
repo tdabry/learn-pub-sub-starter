@@ -21,22 +21,19 @@ func main() {
 		return
 	}
 	defer rabbit.Close()
-
+	ch, err := rabbit.Channel()
+	if err != nil {
+		log.Print("error getting channel")
+		return
+	}
 	username, err := gamelogic.ClientWelcome()
 	if err != nil {
 		log.Print("error getting username")
 		return
 	}
 
-	bindQueue(rabbit, username, routing.ExchangePerilTopic,
-		routing.PauseKey, "something went wrong with queue binding1", pubsub.Transient)
-	ch := bindQueue(rabbit, username, routing.ExchangePerilTopic,
-		routing.ArmyMovesPrefix, "something went wrong with queue binding2", pubsub.Transient)
-	bindQueue(rabbit, "", routing.ExchangePerilTopic,
-		routing.WarRecognitionsPrefix, "something went wrong with queue binding3", pubsub.Durable)
-
 	gameState := gamelogic.NewGameState(username)
-	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
+	subscribe(rabbit, gameState, username, routing.ExchangePerilDirect,
 		routing.PauseKey, "error subscribing to queue1", pubsub.Transient, handlerPause)
 
 	subscribe(rabbit, gameState, username, routing.ExchangePerilTopic,
@@ -105,27 +102,6 @@ func subscribe[T any](rabbit *amqp.Connection, gameState *gamelogic.GameState,
 	}
 }
 
-func bindQueue(rabbit *amqp.Connection, username, exchange, key, msg string,
-	qType pubsub.SimpleQueueType) *amqp.Channel {
-
-	route := key
-	qName := key + "." + username
-	switch key {
-	case "army_moves":
-		route = route + ".*"
-	case "war":
-		qName = key
-		route = route + ".*"
-	}
-	ch, queue, err := pubsub.DeclareAndBind(rabbit, exchange,
-		qName, route, qType)
-	if err != nil {
-		log.Fatal(msg)
-	}
-	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
-	return ch
-}
-
 func hasErr(err error) bool {
 	if err != nil {
 		log.Printf("%s", err)
@@ -192,7 +168,7 @@ func handlerWar(gs *gamelogic.GameState, conn *amqp.Connection) func(gamelogic.R
 	}
 }
 
-func handlerPause(gs *gamelogic.GameState, rabbit *amqp.Connection) func(routing.PlayingState) pubsub.Acktype {
+func handlerPause(gs *gamelogic.GameState, conn *amqp.Connection) func(routing.PlayingState) pubsub.Acktype {
 	return func(ps routing.PlayingState) pubsub.Acktype {
 		defer fmt.Print("> ")
 		gs.HandlePause(ps)
